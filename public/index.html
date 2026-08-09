@@ -307,21 +307,39 @@ body.listening .orb-label { color: var(--c); opacity: 1; }
 
   <div class="footer">
     <span id="reqCount">ЗАПРОСОВ: 0</span>
-    <span>VIS · CLAUDE SONNET 4</span>
+    <span onclick="clearMemory()" style="cursor:pointer;text-decoration:underline;opacity:0.5">ОЧИСТИТЬ ПАМЯТЬ</span>
     <span id="stateLabel">ОЖИДАНИЕ</span>
   </div>
 </div>
 
 <script>
-const SYSTEM = `Ты — VIS, персональный ИИ-ассистент Йосипа. Говоришь по-русски. Характер: умный, честный, слегка саркастичный — как Джарвис из фильма. Иногда "сэр".
+const SYSTEM = `Ты — VIS, персональный ИИ-ассистент Йосипа. Говоришь по-русски.
+
+ХАРАКТЕР:
+Смесь Джарвиса и стратегического ментора. Сдержанный, честный, с сухим юмором. Никогда не льстишь и не поддакиваешь. Уважаешь человека настолько, что говоришь правду даже когда она неудобна.
+
+КАК ГОВОРИШЬ:
+— Кратко, по делу, без "воды" и лишних вступлений
+— Не начинаешь ответы с "Отличный вопрос!" или похвалы на пустом месте
+— Иногда сухой юмор, по-доброму, не язвительно
+— Не используешь лишние emoji
+— Не извиняешься избыточно
+— Обращение нейтральное, изредка "сэр" к месту, не через раз
+
+КАК ДУМАЕШЬ:
+— Замечаешь противоречия в словах человека — говоришь об этом прямо
+— Помнишь что он говорил раньше — используешь это чтобы не дать ему обмануть себя
+— Если решение плохое — говоришь "это плохая идея" и объясняешь почему
+— Задаёшь встречные вопросы вместо готовых ответов, когда человек сам знает ответ
+— Разделяешь факты и мнения — не выдаёшь предположения за уверенность
 
 ПРОФИЛЬ ЙОСИПА:
 - Рост 178см, вес 58кг, ИМТ 18.3 — цель набор 5-7кг мышечной массы
 - Нормы: 2400 ккал, белок 116г, вода 2.3л, подъём 05:00-06:00
-- Цели: Инновации, Технологии, Строительство, Криптовалюта, Инвестиции, Здоровое тело и аура
+- Цели: Инновации, Технологии, Строительство, Криптовалюта, Инвестиции, Здоровое тело и мощная аура
 - Привычки: тренировки, холодный душ, медитация, чтение, детокс протокол
 
-ВАЖНО: Не поддакивай. Говори честно. Замечай негативные паттерны. Отвечай структурированно.`;
+ЖЁСТКОЕ ПРАВИЛО: никогда не поддакивай ради комфорта. Честность важнее удобства.`;
 
 let messages = [], isLoading = false, recognition = null, isListening = false;
 let reqCount = 0, vizBars = [], vizInterval = null;
@@ -351,11 +369,51 @@ window.onload = () => {
     document.getElementById('clock').textContent = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
   }, 1000);
 
-  // Greet
-  const h = new Date().getHours();
-  const g = h < 6 ? 'Раннее утро' : h < 12 ? 'Доброе утро' : h < 17 ? 'Добрый день' : 'Добрый вечер';
-  setTimeout(() => ask(`${g}, Йосип! Кратко представься и дай один мощный совет на сегодня.`), 800);
+  // Load memory then greet
+  loadHistory();
 };
+
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/history');
+    const data = await res.json();
+    if (data.messages && data.messages.length > 0) {
+      messages = data.messages.map(m => ({ role: m.role, content: m.content }));
+      // Show last few in history panel
+      data.messages.slice(-10).forEach(m => addHistory(m.role === 'user' ? 'user' : 'vis', m.content));
+      // Show most recent assistant reply as current response
+      const lastAssistant = [...data.messages].reverse().find(m => m.role === 'assistant');
+      if (lastAssistant) showResponse(lastAssistant.content, false);
+      reqCount = data.messages.filter(m => m.role === 'user').length;
+      document.getElementById('reqCount').textContent = `ЗАПРОСОВ: ${reqCount}`;
+      // Don't re-greet — VIS already knows the conversation continues
+      showResponse(`С возвращением, Йосип. Помню наш разговор — ${data.messages.length} сообщений в памяти.`, false);
+      speak(`С возвращением, Йосип.`);
+    } else {
+      // First time — greet fresh
+      const h = new Date().getHours();
+      const g = h < 6 ? 'Раннее утро' : h < 12 ? 'Доброе утро' : h < 17 ? 'Добрый день' : 'Добрый вечер';
+      setTimeout(() => ask(`${g}, Йосип! Кратко представься и дай один совет на сегодня.`), 800);
+    }
+  } catch (err) {
+    console.error('Load history failed:', err);
+    const h = new Date().getHours();
+    const g = h < 6 ? 'Раннее утро' : h < 12 ? 'Доброе утро' : h < 17 ? 'Добрый день' : 'Добрый вечер';
+    setTimeout(() => ask(`${g}, Йосип! Кратко представься.`), 800);
+  }
+}
+
+async function clearMemory() {
+  if (!confirm('Стереть всю память VIS о разговорах? Это необратимо.')) return;
+  try {
+    await fetch('/api/history', { method: 'DELETE' });
+    messages = [];
+    document.getElementById('history').innerHTML = '';
+    location.reload();
+  } catch (err) {
+    alert('Ошибка очистки памяти');
+  }
+}
 
 function toggleListen() {
   if (isListening) { stopListen(); return; }
