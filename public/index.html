@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VIS">
+<title>VIS — Personal AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --c: #22D3EE;
+  --crgb: 34,211,238;
+  --cdim: #0891B2;
+  --bg: #03080D;
+  --panel: #060E14;
+  --border: #0A1A24;
+  --text: #B0D4E0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Rajdhani', sans-serif;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-x: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+#stars { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+.star { position: absolute; border-radius: 50%; background: white; animation: starBlink var(--dur) ease var(--delay) infinite; }
+@keyframes starBlink { 0%,100%{opacity:var(--op)} 50%{opacity:calc(var(--op)*0.1)} }
+
+#nebula {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 20%, rgba(var(--crgb),0.1) 0%, transparent 65%),
+    radial-gradient(ellipse 40% 60% at 10% 80%, rgba(var(--crgb),0.05) 0%, transparent 50%);
+}
+
+.wrap {
+  position: relative; z-index: 1;
+  width: 100%; max-width: 420px;
+  padding: 0 20px;
+  display: flex; flex-direction: column; align-items: center;
+  min-height: 100vh;
+}
+
+.hud {
+  width: 100%; display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 0 12px;
+  border-bottom: 1px solid rgba(var(--crgb),0.1);
+  margin-bottom: 16px;
+}
+
+.logo { font-family: 'Orbitron', monospace; font-size: 20px; font-weight: 900; color: var(--c); letter-spacing: 0.25em; text-shadow: 0 0 20px rgba(var(--crgb),0.8); }
+.logo-sub { font-family: 'Orbitron', monospace; font-size: 6.5px; color: var(--c); letter-spacing: 0.18em; opacity: 0.4; margin-top: 2px; }
+.clock { font-family: 'Orbitron', monospace; font-size: 14px; color: var(--c); text-align: right; }
+
+.status-dot { width: 5px; height: 5px; border-radius: 50%; background: #22C55E; display: inline-block; margin-right: 5px; animation: blink 2s ease infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+.orb-wrap {
+  position: relative; width: 220px; height: 220px;
+  margin: 10px 0 20px;
+  animation: float 5s ease-in-out infinite;
+  cursor: pointer;
+}
+
+@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+
+.orb-glow {
+  position: absolute; inset: -30px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--crgb),0.15) 0%, transparent 70%);
+  filter: blur(20px); transition: background 0.4s;
+}
+
+.orb-ring { position: absolute; border-radius: 50%; border: 1px solid rgba(var(--crgb),0.2); }
+.orb-ring-1 { inset: 0; animation: rot 20s linear infinite; border-style: dashed; }
+.orb-ring-2 { inset: 12px; animation: rotR 13s linear infinite; opacity: 0.5; }
+@keyframes rot { to { transform: rotate(360deg); } }
+@keyframes rotR { to { transform: rotate(-360deg); } }
+
+.orb-core {
+  position: absolute; inset: 30px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #0C3A44, #020810 75%);
+  border: 2px solid var(--c);
+  box-shadow: 0 0 30px rgba(var(--crgb),0.5), 0 0 60px rgba(var(--crgb),0.2), inset 0 0 30px rgba(var(--crgb),0.1);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.3s; overflow: hidden;
+}
+
+.orb-core:active { transform: scale(0.93); }
+.orb-icon { position: relative; z-index: 1; width: 62%; height: 62%; display: flex; align-items: center; justify-content: center; transition: transform 0.3s; }
+.orb-icon svg { width: 100%; height: 100%; filter: drop-shadow(0 0 6px rgba(var(--crgb),0.8)); }
+.orb-shimmer { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 33% 25%, rgba(255,255,255,0.1) 0%, transparent 55%); }
+
+body.listening .orb-icon svg,
+body.speaking .orb-icon svg { filter: drop-shadow(0 0 12px rgba(var(--crgb),1)); }
+body.speaking .orb-icon svg { filter: drop-shadow(0 0 12px rgba(255,179,0,1)); }
+
+.orb-label {
+  font-family: 'Orbitron', monospace; font-size: 9px;
+  color: var(--c); letter-spacing: 0.18em; opacity: 0.5;
+  margin-bottom: 16px; transition: all 0.3s; text-align: center;
+}
+
+.viz { display: flex; align-items: center; gap: 3px; height: 32px; margin-bottom: 14px; opacity: 0; transition: opacity 0.3s; }
+.viz.active { opacity: 1; }
+.viz-bar { width: 3px; border-radius: 2px; background: var(--c); height: 4px; transition: height 0.08s; }
+
+.transcript { width: 100%; min-height: 44px; margin-bottom: 12px; text-align: center; }
+
+.bubble-user {
+  display: inline-block;
+  background: rgba(var(--crgb),0.06); border: 1px solid rgba(var(--crgb),0.15);
+  border-radius: 3px 16px 16px 16px; padding: 9px 15px;
+  font-size: 14px; font-weight: 500; max-width: 100%; text-align: left;
+  animation: fadeUp 0.3s ease;
+}
+
+@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+.response {
+  width: 100%; background: var(--panel);
+  border: 1px solid rgba(var(--crgb),0.15); border-top: 2px solid var(--c);
+  padding: 14px 16px; margin-bottom: 14px;
+  position: relative; display: none; animation: fadeUp 0.3s ease;
+}
+
+.response.show { display: block; }
+
+.response::before {
+  content: 'VIS'; position: absolute; top: -9px; left: 14px;
+  font-family: 'Orbitron', monospace; font-size: 8px; color: var(--c);
+  background: var(--panel); padding: 0 7px; letter-spacing: 0.18em;
+}
+
+.response-text { font-size: 14px; line-height: 1.72; color: rgba(255,255,255,0.75); white-space: pre-wrap; }
+
+.thinking { display: flex; gap: 5px; align-items: center; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c); animation: blink 1.2s ease infinite; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+
+.input-row { width: 100%; display: flex; gap: 7px; margin-bottom: 12px; }
+
+.text-in {
+  flex: 1; background: var(--panel);
+  border: 1px solid var(--border); border-bottom: 2px solid var(--c);
+  color: var(--text); font-family: 'Rajdhani', sans-serif;
+  font-size: 14px; padding: 10px 13px; outline: none; min-width: 0;
+}
+
+.text-in::placeholder { color: rgba(255,255,255,0.2); }
+
+.btn-mic {
+  width: 46px; border: 1px solid var(--c); background: var(--panel);
+  color: var(--c); font-size: 18px; display: flex; align-items: center;
+  justify-content: center; cursor: pointer; flex-shrink: 0; transition: all 0.2s;
+}
+
+.btn-mic.listening { background: rgba(var(--crgb),0.15); box-shadow: 0 0 16px rgba(var(--crgb),0.4); }
+
+.btn-send {
+  padding: 10px 13px; border: 1px solid rgba(var(--crgb),0.4);
+  background: transparent; color: var(--c);
+  font-family: 'Orbitron', monospace; font-size: 9px;
+  letter-spacing: 0.12em; cursor: pointer; flex-shrink: 0;
+}
+
+.btn-send:active { background: rgba(var(--crgb),0.15); }
+
+.quick-grid { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 14px; }
+
+.quick-btn {
+  background: var(--panel); border: 1px solid var(--border);
+  border-left: 2px solid rgba(var(--crgb),0.4);
+  padding: 10px 12px; cursor: pointer; text-align: left;
+  color: var(--text); font-family: 'Rajdhani', sans-serif;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.05em; transition: all 0.18s;
+}
+
+.quick-btn:active { border-left-color: var(--c); transform: translateX(2px); }
+.quick-btn span { display: block; font-size: 16px; margin-bottom: 3px; }
+
+.history { width: 100%; max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+.history::-webkit-scrollbar { width: 2px; }
+.history::-webkit-scrollbar-thumb { background: var(--border); }
+
+.h-item { display: flex; gap: 9px; font-size: 11.5px; padding: 5px 9px; border-left: 2px solid; color: rgba(255,255,255,0.4); line-height: 1.4; }
+.h-item.user { border-color: rgba(var(--crgb),0.25); }
+.h-item.vis { border-color: rgba(255,179,0,0.25); }
+.h-role { font-family: 'Orbitron', monospace; font-size: 7px; min-width: 28px; opacity: 0.5; padding-top: 2px; flex-shrink: 0; }
+
+.footer { width: 100%; display: flex; justify-content: space-between; padding: 10px 0 20px; border-top: 1px solid rgba(var(--crgb),0.08); margin-top: 4px; }
+.footer span { font-family: 'Orbitron', monospace; font-size: 7px; color: rgba(var(--crgb),0.2); letter-spacing: 0.1em; }
+
+body.listening .orb-glow { background: radial-gradient(circle, rgba(var(--crgb),0.3) 0%, transparent 70%); }
+body.speaking .orb-glow { background: radial-gradient(circle, rgba(255,179,0,0.25) 0%, transparent 70%); }
+body.speaking .orb-core { border-color: #FFB300; box-shadow: 0 0 30px rgba(255,179,0,0.4), inset 0 0 30px rgba(255,179,0,0.08); }
+body.speaking .viz-bar { background: #FFB300; }
+body.speaking .orb-label { color: #FFB300; opacity: 1; }
+body.listening .orb-label { color: var(--c); opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="stars"></div>
+<div id="nebula"></div>
+
+<div class="wrap">
+  <div class="hud">
+    <div>
+      <div class="logo">VIS</div>
+      <div class="logo-sub">VIRTUAL INTELLIGENCE SYSTEM</div>
+    </div>
+    <div style="text-align:right">
+      <div class="clock" id="clock">00:00</div>
+      <div style="font-family:'Orbitron',monospace;font-size:7px;color:var(--c);opacity:0.4;margin-top:2px;letter-spacing:0.12em">
+        <span class="status-dot"></span>ЙОСИП
+      </div>
+    </div>
+  </div>
+
+  <div class="orb-wrap" onclick="toggleListen()">
+    <div class="orb-glow"></div>
+    <div class="orb-ring orb-ring-1"></div>
+    <div class="orb-ring orb-ring-2"></div>
+    <div class="orb-core">
+      <div class="orb-shimmer"></div>
+      <div class="orb-icon" id="orbIcon">
+        <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- V outline -->
+          <path d="M 40 34 L 76 34 L 100 144 L 124 34 L 160 34 L 100 176 Z"
+            stroke="currentColor" stroke-width="6" stroke-linejoin="round" fill="none" opacity="0.95"/>
+          <!-- round caps top-left -->
+          <circle cx="40" cy="34" r="11" stroke="currentColor" stroke-width="5" fill="none" opacity="0.9"/>
+          <!-- round caps top-right (two, like logo) -->
+          <circle cx="132" cy="30" r="8" stroke="currentColor" stroke-width="4.5" fill="none" opacity="0.9"/>
+          <circle cx="160" cy="30" r="6" stroke="currentColor" stroke-width="4" fill="none" opacity="0.75"/>
+          <!-- internal polygon mesh -->
+          <g stroke="currentColor" stroke-width="1.4" opacity="0.45">
+            <line x1="100" y1="62" x2="76" y2="86"/>
+            <line x1="100" y1="62" x2="124" y2="86"/>
+            <line x1="100" y1="62" x2="100" y2="104"/>
+            <line x1="76" y1="86" x2="100" y2="104"/>
+            <line x1="124" y1="86" x2="100" y2="104"/>
+            <line x1="76" y1="86" x2="88" y2="120"/>
+            <line x1="100" y1="104" x2="88" y2="120"/>
+            <line x1="100" y1="104" x2="112" y2="120"/>
+            <line x1="88" y1="120" x2="112" y2="120"/>
+            <line x1="88" y1="120" x2="100" y2="144"/>
+            <line x1="112" y1="120" x2="100" y2="144"/>
+            <line x1="55" y1="58" x2="76" y2="86"/>
+            <line x1="145" y1="58" x2="124" y2="86"/>
+          </g>
+          <!-- nodes -->
+          <g fill="currentColor">
+            <circle cx="100" cy="62" r="4.5"/>
+            <circle cx="76" cy="86" r="4"/>
+            <circle cx="124" cy="86" r="4"/>
+            <circle cx="100" cy="104" r="4.5"/>
+            <circle cx="88" cy="120" r="3.5"/>
+            <circle cx="112" cy="120" r="3.5"/>
+            <circle cx="100" cy="144" r="4"/>
+            <circle cx="55" cy="58" r="3" opacity="0.8"/>
+            <circle cx="145" cy="58" r="3" opacity="0.8"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="orb-label" id="orbLabel">НАЖМИ ДЛЯ АКТИВАЦИИ</div>
+
+  <div class="viz" id="viz"></div>
+  <div class="transcript" id="transcript"></div>
+
+  <div class="response" id="response">
+    <div class="response-text" id="responseText"></div>
+  </div>
+
+  <div class="input-row">
+    <button class="btn-mic" id="micBtn" onclick="toggleListen()">🎙</button>
+    <input class="text-in" id="textIn" placeholder="Напиши команду..." onkeydown="if(event.key==='Enter')sendText()" />
+    <button class="btn-send" onclick="sendText()">SEND</button>
+  </div>
+
+  <div class="quick-grid">
+    <button class="quick-btn" onclick="ask('Составь мой план питания на сегодня. Рост 178, вес 58кг, цель набор мышечной массы')"><span>🍳</span>РАЦИОН ДНЯ</button>
+    <button class="quick-btn" onclick="ask('Дай мощный заряд мотивации и аффирмацию на сегодня')"><span>⚡</span>МОТИВАЦИЯ</button>
+    <button class="quick-btn" onclick="ask('Составь тренировку для набора массы при весе 58кг и росте 178см')"><span>💪</span>ТРЕНИРОВКА</button>
+    <button class="quick-btn" onclick="ask('Как усилить ауру и энергетику? Конкретные практики на сегодня')"><span>🔮</span>АУРА</button>
+    <button class="quick-btn" onclick="ask('Дай анализ крипторынка — на что обратить внимание инвестору')"><span>₿</span>КРИПТО</button>
+    <button class="quick-btn" onclick="ask('Найди минусы в моём мышлении и дай честную обратную связь')"><span>🧠</span>АНАЛИЗ</button>
+  </div>
+
+  <div class="history" id="history"></div>
+
+  <div class="footer">
+    <span id="reqCount">ЗАПРОСОВ: 0</span>
+    <span>VIS · CLAUDE SONNET 4</span>
+    <span id="stateLabel">ОЖИДАНИЕ</span>
+  </div>
+</div>
+
+<script>
+const SYSTEM = `Ты — VIS, персональный ИИ-ассистент Йосипа. Говоришь по-русски. Характер: умный, честный, слегка саркастичный — как Джарвис из фильма. Иногда "сэр".
+
+ПРОФИЛЬ ЙОСИПА:
+- Рост 178см, вес 58кг, ИМТ 18.3 — цель набор 5-7кг мышечной массы
+- Нормы: 2400 ккал, белок 116г, вода 2.3л, подъём 05:00-06:00
+- Цели: Инновации, Технологии, Строительство, Криптовалюта, Инвестиции, Здоровое тело и аура
+- Привычки: тренировки, холодный душ, медитация, чтение, детокс протокол
+
+ВАЖНО: Не поддакивай. Говори честно. Замечай негативные паттерны. Отвечай структурированно.`;
+
+let messages = [], isLoading = false, recognition = null, isListening = false;
+let reqCount = 0, vizBars = [], vizInterval = null;
+
+window.onload = () => {
+  // Stars
+  const el = document.getElementById('stars');
+  for (let i = 0; i < 70; i++) {
+    const s = document.createElement('div');
+    s.className = 'star';
+    const op = (Math.random() * 0.5 + 0.1).toFixed(2);
+    s.style.cssText = `left:${Math.random()*100}%;top:${Math.random()*100}%;width:${Math.random()*1.8+0.4}px;height:${Math.random()*1.8+0.4}px;--op:${op};--dur:${(Math.random()*3+1.5).toFixed(1)}s;--delay:-${(Math.random()*4).toFixed(1)}s;`;
+    el.appendChild(s);
+  }
+
+  // Viz
+  const viz = document.getElementById('viz');
+  for (let i = 0; i < 22; i++) {
+    const b = document.createElement('div');
+    b.className = 'viz-bar';
+    viz.appendChild(b);
+    vizBars.push(b);
+  }
+
+  // Clock
+  setInterval(() => {
+    document.getElementById('clock').textContent = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
+  }, 1000);
+
+  // Greet
+  const h = new Date().getHours();
+  const g = h < 6 ? 'Раннее утро' : h < 12 ? 'Доброе утро' : h < 17 ? 'Добрый день' : 'Добрый вечер';
+  setTimeout(() => ask(`${g}, Йосип! Кратко представься и дай один мощный совет на сегодня.`), 800);
+};
+
+function toggleListen() {
+  if (isListening) { stopListen(); return; }
+  if (isLoading) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { showResponse('Голосовой ввод недоступен. Используй текстовый ввод.', false); return; }
+  recognition = new SR();
+  recognition.lang = 'ru-RU';
+  recognition.interimResults = true;
+  recognition.onstart = () => { isListening = true; setState('listening'); };
+  recognition.onresult = (e) => {
+    let interim = '', final = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    const text = final || interim;
+    if (text) document.getElementById('transcript').innerHTML = `<div class="bubble-user">🎙 ${text}</div>`;
+    if (final) { stopListen(); ask(final); }
+  };
+  recognition.onend = () => { isListening = false; if (!isLoading) setState('idle'); };
+  recognition.onerror = () => { isListening = false; setState('idle'); };
+  recognition.start();
+}
+
+function stopListen() {
+  if (recognition) recognition.stop();
+  isListening = false;
+  document.getElementById('micBtn').classList.remove('listening');
+}
+
+function sendText() {
+  const input = document.getElementById('textIn');
+  const text = input.value.trim();
+  if (!text || isLoading) return;
+  input.value = '';
+  document.getElementById('transcript').innerHTML = `<div class="bubble-user">⌨ ${text}</div>`;
+  ask(text);
+}
+
+async function ask(text) {
+  if (isLoading) return;
+  isLoading = true;
+  setState('thinking');
+  showResponse('', true);
+  messages.push({ role: 'user', content: text });
+  reqCount++;
+  document.getElementById('reqCount').textContent = `ЗАПРОСОВ: ${reqCount}`;
+  addHistory('user', text);
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: messages.slice(-16), system: SYSTEM }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      const errMsg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
+      showResponse(`Ошибка: ${errMsg}`, false); setState('idle'); messages.pop(); return;
+    }
+    const reply = data.content?.[0]?.text || 'Нет ответа.';
+    messages.push({ role: 'assistant', content: reply });
+    addHistory('vis', reply);
+    showResponse(reply, false);
+    speak(reply);
+  } catch (err) {
+    showResponse('Ошибка соединения с сервером.', false);
+    setState('idle');
+    messages.pop();
+  } finally {
+    isLoading = false;
+  }
+}
+
+function speak(text) {
+  if (!window.speechSynthesis) { setState('idle'); return; }
+  window.speechSynthesis.cancel();
+  const clean = text.replace(/[\u{1F300}-\u{1FFFF}*#•]/gu, '').substring(0, 600);
+  const utt = new SpeechSynthesisUtterance(clean);
+  utt.lang = 'ru-RU'; utt.rate = 1.05; utt.pitch = 0.85;
+  const voices = window.speechSynthesis.getVoices();
+  const ru = voices.find(v => v.lang.startsWith('ru'));
+  if (ru) utt.voice = ru;
+  utt.onstart = () => setState('speaking');
+  utt.onend = () => setState('idle');
+  utt.onerror = () => setState('idle');
+  window.speechSynthesis.speak(utt);
+}
+
+function setState(state) {
+  document.body.classList.remove('listening', 'speaking');
+  const icon = document.getElementById('orbIcon');
+  const label = document.getElementById('orbLabel');
+  const micBtn = document.getElementById('micBtn');
+  const stateLabel = document.getElementById('stateLabel');
+  const viz = document.getElementById('viz');
+  clearInterval(vizInterval);
+
+  const states = {
+    listening: { label:'● СЛУШАЮ...', state:'СЛУШАЮ', vizActive:true, speed:90, max:16 },
+    thinking:  { label:'◈ ОБРАБАТЫВАЮ...', state:'ДУМАЮ', vizActive:false },
+    speaking:  { label:'◉ ГОВОРЮ...', state:'ГОВОРЮ', vizActive:true, speed:85, max:26 },
+    idle:      { label:'НАЖМИ ДЛЯ АКТИВАЦИИ', state:'ОЖИДАНИЕ', vizActive:false },
+  };
+
+  const s = states[state] || states.idle;
+  icon.style.transform = (state === 'thinking') ? 'scale(0.92) rotate(3deg)' : 'scale(1)';
+  label.textContent = s.label;
+  label.style.opacity = state === 'idle' ? '0.5' : '1';
+  stateLabel.textContent = s.state;
+  micBtn.classList.toggle('listening', state === 'listening');
+
+  if (state === 'listening') document.body.classList.add('listening');
+  if (state === 'speaking') document.body.classList.add('speaking');
+
+  if (s.vizActive) {
+    viz.classList.add('active');
+    vizInterval = setInterval(() => {
+      vizBars.forEach(b => b.style.height = (Math.random() * s.max + 4) + 'px');
+    }, s.speed);
+  } else {
+    viz.classList.remove('active');
+    vizBars.forEach(b => b.style.height = '4px');
+  }
+}
+
+function showResponse(text, thinking) {
+  const panel = document.getElementById('response');
+  const el = document.getElementById('responseText');
+  panel.classList.add('show');
+  el.innerHTML = thinking
+    ? '<div class="thinking"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>'
+    : '';
+  if (!thinking) el.textContent = text;
+}
+
+function addHistory(role, text) {
+  const hist = document.getElementById('history');
+  const item = document.createElement('div');
+  item.className = `h-item ${role}`;
+  item.innerHTML = `<span class="h-role">${role === 'user' ? 'ВЫ' : 'VIS'}</span><span>${(text.length > 90 ? text.slice(0,90)+'…' : text)}</span>`;
+  hist.appendChild(item);
+  hist.scrollTop = hist.scrollHeight;
+}
+</script>
+</body>
+</html>
