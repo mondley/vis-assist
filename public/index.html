@@ -200,6 +200,33 @@ body.speaking .orb-icon svg { filter: drop-shadow(0 0 12px rgba(255,179,0,1)); }
 .h-item.vis { border-color: rgba(255,179,0,0.25); }
 .h-role { font-family: 'Orbitron', monospace; font-size: 7px; min-width: 28px; opacity: 0.5; padding-top: 2px; flex-shrink: 0; }
 
+.tasks-toggle {
+  width: 100%; display: flex; justify-content: space-between; align-items: center;
+  background: var(--panel); border: 1px solid var(--border); border-left: 2px solid rgba(var(--crgb),0.4);
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+  color: var(--text); font-family: 'Rajdhani', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.05em;
+}
+.tasks-badge {
+  font-family: 'Orbitron', monospace; font-size: 10px; color: var(--c);
+  background: rgba(var(--crgb),0.12); padding: 2px 8px; border-radius: 10px;
+}
+.tasks-panel { width: 100%; max-height: 220px; overflow-y: auto; display: none; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.tasks-panel.show { display: flex; }
+.tasks-panel::-webkit-scrollbar { width: 2px; }
+.tasks-panel::-webkit-scrollbar-thumb { background: var(--border); }
+
+.task-item { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--border); border-left: 2px solid rgba(var(--crgb),0.3); transition: opacity 0.2s; }
+.task-item.done { opacity: 0.4; }
+.task-item.done .task-desc { text-decoration: line-through; }
+.task-check {
+  flex-shrink: 0; width: 16px; height: 16px; margin-top: 1px; border: 1px solid var(--c); border-radius: 3px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--c); line-height: 1;
+}
+.task-item.done .task-check { background: rgba(var(--crgb),0.2); }
+.task-desc { flex: 1; line-height: 1.4; }
+.task-empty { opacity: 0.4; font-size: 12px; padding: 8px; text-align: center; }
+
 .footer { width: 100%; display: flex; justify-content: space-between; padding: 10px 0 20px; border-top: 1px solid rgba(var(--crgb),0.08); margin-top: 4px; }
 .footer span { font-family: 'Orbitron', monospace; font-size: 7px; color: rgba(var(--crgb),0.2); letter-spacing: 0.1em; }
 
@@ -303,6 +330,12 @@ body.listening .orb-label { color: var(--c); opacity: 1; }
     <button class="quick-btn" onclick="ask('Найди минусы в моём мышлении и дай честную обратную связь')"><span>🧠</span>АНАЛИЗ</button>
   </div>
 
+  <div class="tasks-toggle" id="tasksToggle" onclick="toggleTasks()">
+    <span>📋 ЗАДАЧИ ДЛЯ КОДА</span>
+    <span class="tasks-badge" id="tasksBadge">0</span>
+  </div>
+  <div class="tasks-panel" id="tasksPanel"></div>
+
   <div class="history" id="history"></div>
 
   <div class="footer">
@@ -313,36 +346,9 @@ body.listening .orb-label { color: var(--c); opacity: 1; }
 </div>
 
 <script>
-const SYSTEM = `Ты — VIS, персональный ИИ-ассистент Йосипа. Говоришь по-русски.
-
-ХАРАКТЕР:
-Смесь Джарвиса и стратегического ментора. Сдержанный, честный, с сухим юмором. Никогда не льстишь и не поддакиваешь. Уважаешь человека настолько, что говоришь правду даже когда она неудобна.
-
-КАК ГОВОРИШЬ:
-— Кратко, по делу, без "воды" и лишних вступлений
-— Не начинаешь ответы с "Отличный вопрос!" или похвалы на пустом месте
-— Иногда сухой юмор, по-доброму, не язвительно
-— Не используешь лишние emoji
-— Не извиняешься избыточно
-— Обращение нейтральное, изредка "сэр" к месту, не через раз
-
-КАК ДУМАЕШЬ:
-— Замечаешь противоречия в словах человека — говоришь об этом прямо
-— Помнишь что он говорил раньше — используешь это чтобы не дать ему обмануть себя
-— Если решение плохое — говоришь "это плохая идея" и объясняешь почему
-— Задаёшь встречные вопросы вместо готовых ответов, когда человек сам знает ответ
-— Разделяешь факты и мнения — не выдаёшь предположения за уверенность
-
-ПРОФИЛЬ ЙОСИПА:
-- Рост 178см, вес 58кг, ИМТ 18.3 — цель набор 5-7кг мышечной массы
-- Нормы: 2400 ккал, белок 116г, вода 2.3л, подъём 05:00-06:00
-- Цели: Инновации, Технологии, Строительство, Криптовалюта, Инвестиции, Здоровое тело и мощная аура
-- Привычки: тренировки, холодный душ, медитация, чтение, детокс протокол
-
-ЖЁСТКОЕ ПРАВИЛО: никогда не поддакивай ради комфорта. Честность важнее удобства.`;
-
 let messages = [], isLoading = false, recognition = null, isListening = false;
 let reqCount = 0, vizBars = [], vizInterval = null;
+let tasks = [];
 
 window.onload = () => {
   // Stars
@@ -371,7 +377,55 @@ window.onload = () => {
 
   // Load memory then greet
   loadHistory();
+  loadTasks();
 };
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadTasks() {
+  try {
+    const res = await fetch('/api/tasks');
+    const data = await res.json();
+    tasks = data.tasks || [];
+    renderTasks();
+  } catch (err) {
+    console.error('Load tasks failed:', err);
+  }
+}
+
+function renderTasks() {
+  const list = document.getElementById('tasksPanel');
+  const pending = tasks.filter(t => t.status !== 'done').length;
+  document.getElementById('tasksBadge').textContent = pending;
+  list.innerHTML = tasks.length
+    ? tasks.map(t => `
+        <div class="task-item ${t.status === 'done' ? 'done' : ''}">
+          <div class="task-check" onclick="toggleTaskDone(${t.id}, '${t.status}')">${t.status === 'done' ? '✓' : ''}</div>
+          <div class="task-desc">${escapeHtml(t.description)}</div>
+        </div>`).join('')
+    : '<div class="task-empty">Пока нет задач</div>';
+}
+
+function toggleTasks() {
+  document.getElementById('tasksPanel').classList.toggle('show');
+  loadTasks();
+}
+
+async function toggleTaskDone(id, currentStatus) {
+  const newStatus = currentStatus === 'done' ? 'pending' : 'done';
+  try {
+    await fetch(`/api/tasks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    await loadTasks();
+  } catch (err) {
+    console.error('Update task failed:', err);
+  }
+}
 
 async function loadHistory() {
   try {
@@ -468,7 +522,7 @@ async function ask(text) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: messages.slice(-16), system: SYSTEM }),
+      body: JSON.stringify({ messages: messages.slice(-16) }),
     });
     const data = await res.json();
     if (data.error) {
@@ -480,6 +534,7 @@ async function ask(text) {
     addHistory('vis', reply);
     showResponse(reply, false);
     speak(reply);
+    loadTasks();
   } catch (err) {
     showResponse('Ошибка соединения с сервером.', false);
     setState('idle');

@@ -30,6 +30,15 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id SERIAL PRIMARY KEY,
+        description TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        source TEXT DEFAULT 'voice',
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
     console.log('DB ready — memory enabled');
   } catch (err) {
     console.error('DB init error:', err.message);
@@ -72,9 +81,107 @@ async function saveMessage(role, content) {
   }
 }
 
+// ── TASKS ─────────────────────────────────────────────
+async function saveTask(description, source = 'voice') {
+  if (!process.env.DATABASE_URL) return null;
+  try {
+    const result = await pool.query(
+      'INSERT INTO tasks (description, source) VALUES ($1, $2) RETURNING *',
+      [description, source]
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error('Save task error:', err.message);
+    return null;
+  }
+}
+
+app.get('/api/tasks', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ tasks: [] });
+  try {
+    const { status } = req.query;
+    const result = status
+      ? await pool.query('SELECT * FROM tasks WHERE status = $1 ORDER BY id DESC', [status])
+      : await pool.query('SELECT * FROM tasks ORDER BY id DESC');
+    res.json({ tasks: result.rows });
+  } catch (err) {
+    console.error('Tasks fetch error:', err.message);
+    res.json({ tasks: [] });
+  }
+});
+
+app.post('/api/tasks', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'БД не настроена' });
+  const { description, source } = req.body;
+  if (!description || !description.trim()) {
+    return res.status(400).json({ error: 'description обязателен' });
+  }
+  const task = await saveTask(description.trim(), source === 'code' ? 'code' : 'voice');
+  if (!task) return res.status(500).json({ error: 'Не удалось создать задачу' });
+  res.json({ task });
+});
+
+app.patch('/api/tasks/:id', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'БД не настроена' });
+  const { status } = req.body;
+  if (!['pending', 'done', 'discussing'].includes(status)) {
+    return res.status(400).json({ error: 'status должен быть pending|done|discussing' });
+  }
+  try {
+    const result = await pool.query(
+      'UPDATE tasks SET status = $1 WHERE id = $2 RETURNING *',
+      [status, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Задача не найдена' });
+    res.json({ task: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── SYSTEM PROMPT ─────────────────────────────────────
+const SYSTEM = `Ты — VIS, персональный ИИ-ассистент Йосипа. Говоришь по-русски.
+
+ХАРАКТЕР:
+Смесь Джарвиса и стратегического ментора. Сдержанный, честный, с сухим юмором. Никогда не льстишь и не поддакиваешь. Уважаешь человека настолько, что говоришь правду даже когда она неудобна.
+
+КАК ГОВОРИШЬ:
+— Кратко, по делу, без "воды" и лишних вступлений
+— Не начинаешь ответы с "Отличный вопрос!" или похвалы на пустом месте
+— Иногда сухой юмор, по-доброму, не язвительно
+— Не используешь лишние emoji
+— Не извиняешься избыточно
+— Обращение нейтральное, изредка "сэр" к месту, не через раз
+
+КАК ДУМАЕШЬ:
+— Замечаешь противоречия в словах человека — говоришь об этом прямо
+— Помнишь что он говорил раньше — используешь это чтобы не дать ему обмануть себя
+— Если решение плохое — говоришь "это плохая идея" и объясняешь почему
+— Задаёшь встречные вопросы вместо готовых ответов, когда человек сам знает ответ
+— Разделяешь факты и мнения — не выдаёшь предположения за уверенность
+
+ПРОФИЛЬ ЙОСИПА:
+- Рост 178см, вес 58кг, ИМТ 18.3 — цель набор 5-7кг мышечной массы
+- Нормы: 2400 ккал, белок 116г, вода 2.3л, подъём 05:00-06:00
+- Цели: Инновации, Технологии, Строительство, Криптовалюта, Инвестиции, Здоровое тело и мощная аура
+- Привычки: тренировки, холодный душ, медитация, чтение, детокс протокол
+
+ЖЁСТКОЕ ПРАВИЛО: никогда не поддакивай ради комфорта. Честность важнее удобства.
+
+ЗАДАЧИ ДЛЯ КОДА:
+Если Йосип говорит "запомни", "занеси в задачи", "задача для кода",
+или явно просит добавить/поправить/сделать что-то в приложении VIS —
+это решение к реализации, а не просто тема для разговора.
+
+В этом случае:
+1. Кратко подтверди голосом что записал (обычный текст ответа)
+2. На отдельной строке в конце добавь маркер: [TASK: краткое описание задачи]
+   Если решений несколько — несколько маркеров, каждый на своей строке.
+Маркер не озвучивается и не показывается пользователю — его вырезает сервер.`;
+
 // ── CHAT PROXY ───────────────────────────────────────
 app.post('/api/chat', async (req, res) => {
-  const { messages, system } = req.body;
+  const { messages } = req.body;
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
@@ -92,9 +199,10 @@ app.post('/api/chat', async (req, res) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: system,
+        model: 'claude-sonnet-5',
+        max_tokens: 1500,
+        thinking: { type: 'disabled' },
+        system: SYSTEM,
         messages: messages,
       }),
     });
@@ -110,8 +218,18 @@ app.post('/api/chat', async (req, res) => {
 
     // Save both user message and assistant reply to memory
     if (lastUserMsg) await saveMessage(lastUserMsg.role, lastUserMsg.content);
-    const replyText = data.content?.[0]?.text;
-    if (replyText) await saveMessage('assistant', replyText);
+
+    let replyText = data.content?.[0]?.text;
+    if (replyText) {
+      const taskRegex = /\[TASK:\s*([^\]]+)\]/g;
+      const taskDescriptions = [...replyText.matchAll(taskRegex)].map(m => m[1].trim());
+      if (taskDescriptions.length > 0) {
+        replyText = replyText.replace(taskRegex, '').replace(/\n{3,}/g, '\n\n').trim();
+        if (data.content?.[0]) data.content[0].text = replyText;
+        for (const description of taskDescriptions) await saveTask(description, 'voice');
+      }
+      await saveMessage('assistant', replyText);
+    }
 
     res.json(data);
 
