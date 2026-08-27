@@ -210,7 +210,13 @@ app.post('/api/chat', async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('Anthropic API error:', data);
+      // TEMP DEBUG LOGGING — remove once the API error is diagnosed
+      console.error('=== Anthropic API error ===');
+      console.error('HTTP status:', response.status);
+      console.error('error.type:', data.error?.type);
+      console.error('error.message:', data.error?.message);
+      console.error('Full response body:', JSON.stringify(data, null, 2));
+      console.error('============================');
       return res.status(response.status).json({
         error: data.error?.message || `Anthropic API вернул ошибку ${response.status}`
       });
@@ -234,7 +240,12 @@ app.post('/api/chat', async (req, res) => {
     res.json(data);
 
   } catch (err) {
-    console.error('Server error:', err);
+    // TEMP DEBUG LOGGING — remove once the API error is diagnosed
+    console.error('=== Server/connection error ===');
+    console.error('err.name:', err.name);
+    console.error('err.message:', err.message);
+    console.error('err.stack:', err.stack);
+    console.error('================================');
     res.status(500).json({ error: 'Ошибка соединения с Anthropic: ' + err.message });
   }
 });
