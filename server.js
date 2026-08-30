@@ -21,27 +21,37 @@ async function initDB() {
     console.log('No DATABASE_URL — memory disabled, running in-memory only');
     return;
   }
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS messages (
-        id SERIAL PRIMARY KEY,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS tasks (
-        id SERIAL PRIMARY KEY,
-        description TEXT NOT NULL,
-        status TEXT DEFAULT 'pending',
-        source TEXT DEFAULT 'voice',
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log('DB ready — memory enabled');
-  } catch (err) {
-    console.error('DB init error:', err.message);
+  const maxRetries = 10;
+  const retryDelayMs = 2000;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS messages (
+          id SERIAL PRIMARY KEY,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS tasks (
+          id SERIAL PRIMARY KEY,
+          description TEXT NOT NULL,
+          status TEXT DEFAULT 'pending',
+          source TEXT DEFAULT 'voice',
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      console.log('DB ready — memory enabled');
+      return;
+    } catch (err) {
+      console.error(`DB init attempt ${attempt}/${maxRetries} failed: ${err.message}`);
+      if (attempt === maxRetries) {
+        console.error('DB init gave up after max retries — memory may be degraded until DB recovers');
+        return;
+      }
+      await new Promise(r => setTimeout(r, retryDelayMs));
+    }
   }
 }
 initDB();
@@ -56,7 +66,7 @@ app.get('/api/history', async (req, res) => {
     res.json({ messages: result.rows });
   } catch (err) {
     console.error('History fetch error:', err.message);
-    res.json({ messages: [] });
+    res.status(503).json({ error: err.message, messages: [] });
   }
 });
 
@@ -106,7 +116,7 @@ app.get('/api/tasks', async (req, res) => {
     res.json({ tasks: result.rows });
   } catch (err) {
     console.error('Tasks fetch error:', err.message);
-    res.json({ tasks: [] });
+    res.status(503).json({ error: err.message, tasks: [] });
   }
 });
 

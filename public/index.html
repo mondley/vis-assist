@@ -427,9 +427,16 @@ async function toggleTaskDone(id, currentStatus) {
   }
 }
 
-async function loadHistory() {
+async function loadHistory(retryCount = 0) {
   try {
     const res = await fetch('/api/history');
+    if (!res.ok) {
+      if (retryCount < 4) {
+        setTimeout(() => loadHistory(retryCount + 1), 2000);
+        return;
+      }
+      throw new Error('history fetch failed after retries');
+    }
     const data = await res.json();
     if (data.messages && data.messages.length > 0) {
       messages = data.messages.map(m => ({ role: m.role, content: m.content }));
