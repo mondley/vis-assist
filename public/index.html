@@ -138,7 +138,7 @@ body.speaking .orb-icon svg { filter: drop-shadow(0 0 12px rgba(255,179,0,1)); }
 .response.show { display: block; }
 
 .response::before {
-  content: 'VIS'; position: absolute; top: -9px; left: 14px;
+  content: 'TISION'; position: absolute; top: -9px; left: 14px;
   font-family: 'Orbitron', monospace; font-size: 8px; color: var(--c);
   background: var(--panel); padding: 0 7px; letter-spacing: 0.18em;
 }
@@ -236,12 +236,51 @@ body.speaking .orb-core { border-color: #FFB300; box-shadow: 0 0 30px rgba(255,1
 body.speaking .viz-bar { background: #FFB300; }
 body.speaking .orb-label { color: #FFB300; opacity: 1; }
 body.listening .orb-label { color: var(--c); opacity: 1; }
+
+.gate {
+  position: fixed; inset: 0; z-index: 10;
+  background: var(--bg);
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.gate.show { display: flex; }
+.gate-box {
+  width: 100%; max-width: 340px;
+  background: var(--panel); border: 1px solid rgba(var(--crgb),0.15); border-top: 2px solid var(--c);
+  padding: 28px 22px; text-align: center;
+}
+.gate-title { font-family: 'Orbitron', monospace; font-size: 20px; font-weight: 900; color: var(--c); letter-spacing: 0.25em; text-shadow: 0 0 20px rgba(var(--crgb),0.8); margin-bottom: 6px; }
+.gate-sub { font-size: 13px; opacity: 0.6; margin-bottom: 18px; }
+.gate-input {
+  width: 100%; background: var(--bg);
+  border: 1px solid var(--border); border-bottom: 2px solid var(--c);
+  color: var(--text); font-family: 'Rajdhani', sans-serif;
+  font-size: 14px; padding: 10px 13px; outline: none; margin-bottom: 12px; text-align: center;
+}
+.gate-btn {
+  width: 100%; padding: 10px 13px; border: 1px solid rgba(var(--crgb),0.4);
+  background: transparent; color: var(--c);
+  font-family: 'Orbitron', monospace; font-size: 11px;
+  letter-spacing: 0.12em; cursor: pointer;
+}
+.gate-btn:active { background: rgba(var(--crgb),0.15); }
+.gate-error { font-size: 12px; color: #F87171; margin-top: 10px; min-height: 14px; }
 </style>
 </head>
 <body>
 
 <div id="stars"></div>
 <div id="nebula"></div>
+
+<div class="gate" id="gate">
+  <div class="gate-box">
+    <div class="gate-title">TISION</div>
+    <div class="gate-sub">Введите код доступа</div>
+    <input class="gate-input" id="gateInput" type="password" placeholder="Код доступа" autocomplete="off" onkeydown="if(event.key==='Enter')submitGate()" />
+    <button class="gate-btn" onclick="submitGate()">ВОЙТИ</button>
+    <div class="gate-error" id="gateError"></div>
+  </div>
+</div>
 
 <div class="wrap">
   <div class="hud">
@@ -375,18 +414,59 @@ window.onload = () => {
     document.getElementById('clock').textContent = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
   }, 1000);
 
-  // Load memory then greet
-  loadHistory();
-  loadTasks();
+  // Access gate, then memory + greet
+  checkGate();
 };
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function authHeaders() {
+  const code = localStorage.getItem('tisionAccessCode');
+  return code ? { 'x-access-code': code } : {};
+}
+
+async function verifyAccess(code) {
+  try {
+    const res = await fetch('/api/history', { headers: { ...(code ? { 'x-access-code': code } : {}) } });
+    return res.status !== 401;
+  } catch {
+    return false;
+  }
+}
+
+async function checkGate() {
+  const stored = localStorage.getItem('tisionAccessCode');
+  if (stored) {
+    if (await verifyAccess(stored)) { initApp(); return; }
+    localStorage.removeItem('tisionAccessCode');
+  }
+  document.getElementById('gate').classList.add('show');
+}
+
+async function submitGate() {
+  const input = document.getElementById('gateInput');
+  const code = input.value.trim();
+  const errEl = document.getElementById('gateError');
+  errEl.textContent = '';
+  if (await verifyAccess(code)) {
+    localStorage.setItem('tisionAccessCode', code);
+    document.getElementById('gate').classList.remove('show');
+    initApp();
+  } else {
+    errEl.textContent = 'Неверный код доступа';
+  }
+}
+
+function initApp() {
+  loadHistory();
+  loadTasks();
+}
+
 async function loadTasks() {
   try {
-    const res = await fetch('/api/tasks');
+    const res = await fetch('/api/tasks', { headers: authHeaders() });
     const data = await res.json();
     tasks = data.tasks || [];
     renderTasks();
@@ -418,7 +498,7 @@ async function toggleTaskDone(id, currentStatus) {
   try {
     await fetch(`/api/tasks/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ status: newStatus }),
     });
     await loadTasks();
@@ -429,7 +509,7 @@ async function toggleTaskDone(id, currentStatus) {
 
 async function loadHistory(retryCount = 0) {
   try {
-    const res = await fetch('/api/history');
+    const res = await fetch('/api/history', { headers: authHeaders() });
     if (!res.ok) {
       if (retryCount < 4) {
         setTimeout(() => loadHistory(retryCount + 1), 2000);
@@ -465,9 +545,9 @@ async function loadHistory(retryCount = 0) {
 }
 
 async function clearMemory() {
-  if (!confirm('Стереть всю память VIS о разговорах? Это необратимо.')) return;
+  if (!confirm('Стереть всю память Tision о разговорах? Это необратимо.')) return;
   try {
-    await fetch('/api/history', { method: 'DELETE' });
+    await fetch('/api/history', { method: 'DELETE', headers: authHeaders() });
     messages = [];
     document.getElementById('history').innerHTML = '';
     location.reload();
@@ -528,10 +608,16 @@ async function ask(text) {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ messages: messages.slice(-16) }),
     });
     const data = await res.json();
+    if (res.status === 401) {
+      localStorage.removeItem('tisionAccessCode');
+      setState('idle'); messages.pop();
+      document.getElementById('gate').classList.add('show');
+      return;
+    }
     if (data.error) {
       const errMsg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
       showResponse(`Ошибка: ${errMsg}`, false); setState('idle'); messages.pop(); return;
@@ -617,7 +703,7 @@ function addHistory(role, text) {
   const hist = document.getElementById('history');
   const item = document.createElement('div');
   item.className = `h-item ${role}`;
-  item.innerHTML = `<span class="h-role">${role === 'user' ? 'ВЫ' : 'VIS'}</span><span>${(text.length > 90 ? text.slice(0,90)+'…' : text)}</span>`;
+  item.innerHTML = `<span class="h-role">${role === 'user' ? 'ВЫ' : 'TISION'}</span><span>${(text.length > 90 ? text.slice(0,90)+'…' : text)}</span>`;
   hist.appendChild(item);
   hist.scrollTop = hist.scrollHeight;
 }
