@@ -52,6 +52,29 @@ async function initDB() {
           created_at TIMESTAMP DEFAULT NOW()
         )
       `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS aura_tasks (
+          id SERIAL PRIMARY KEY,
+          task_date DATE NOT NULL UNIQUE,
+          category TEXT,
+          description TEXT NOT NULL,
+          completed BOOLEAN DEFAULT FALSE,
+          completed_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS aura_streak (
+          id INT PRIMARY KEY,
+          current_streak INT DEFAULT 0,
+          categories_unlocked BOOLEAN DEFAULT FALSE,
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await pool.query(`
+        INSERT INTO aura_streak (id, current_streak, categories_unlocked)
+        VALUES (1, 0, FALSE) ON CONFLICT (id) DO NOTHING
+      `);
       console.log('DB ready — memory enabled');
       return;
     } catch (err) {
@@ -155,6 +178,175 @@ app.patch('/api/tasks/:id', async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Задача не найдена' });
     res.json({ task: result.rows[0] });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── AURA ──────────────────────────────────────────────
+// Days 1-7: Tision rotates through these five auto-picked task types.
+// Day 8+ (categories_unlocked): Йосип picks a category himself, tasks step up in load.
+const AUTO_TYPES = ['reading', 'detox', 'physical', 'voice', 'discipline'];
+const AUTO_TASKS = {
+  reading: [
+    'Сегодня — читай книгу на перерывах вместо телефона. Минимум 15 минут за один присест.',
+    'Сегодня — прочитай 10 страниц любой нон-фикшн книги.',
+  ],
+  detox: [
+    'Сегодня — минимизируй использование телефона. Проверяй его не чаще раза в час.',
+    'Сегодня — час без экрана перед сном.',
+  ],
+  physical: [
+    'Сегодня — 3 подхода отжиманий и 3 подхода приседаний, последний повтор в каждом подходе до отказа. Рост 178, вес 58 — работаем на массу.',
+    'Сегодня — 3 подхода любого силового упражнения, отдых между подходами не больше 90 секунд.',
+  ],
+  voice: [
+    'Сегодня — говори медленнее. Спешащий голос выдаёт слабую ауру.',
+    'Сегодня — три диалога, где ты слушаешь дольше, чем говоришь.',
+  ],
+  discipline: [
+    'Сегодня — не оправдывайся ни разу.',
+    'Сегодня — осанка. Проверяй себя каждый час.',
+  ],
+};
+const CATEGORY_TASKS = {
+  'ТЕЛО': [
+    '5 подходов отжиманий и 5 подходов приседаний, с увеличением нагрузки на последнем подходе. Вес 58 при росте 178 — работаем ближе к отказу.',
+    'Силовая тренировка на всё тело — 5 подходов на каждое упражнение.',
+  ],
+  'ГОЛОС': [
+    'Запиши голосовую заметку на 2 минуты — только уверенным, медленным темпом, без слов-паразитов.',
+    'Пять диалогов сегодня — в каждом держишь паузу минимум 2 секунды перед ответом.',
+  ],
+  'МЫШЛЕНИЕ': [
+    'Прочитай главу книги и перескажи мне главную мысль своими словами.',
+    'Запиши три противоречия в своих же решениях за последнюю неделю.',
+  ],
+  'ДИСЦИПЛИНА': [
+    'Ни одного оправдания и ни одной отложенной задачи сегодня — до конца дня.',
+    'Всё, что решил сделать сегодня — делаешь в течение часа после решения.',
+  ],
+};
+const CATEGORIES = Object.keys(CATEGORY_TASKS);
+
+function pickRandom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function todayDateStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function daysBetween(a, b) {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+}
+
+async function getStreak() {
+  const result = await pool.query('SELECT * FROM aura_streak WHERE id = 1');
+  return result.rows[0];
+}
+
+// Idempotent: safe to call on every request. Rolls the streak forward/back
+// based on real elapsed calendar days, then (for days 1-7) seeds today's
+// auto-picked task. Day 8+ tasks wait for an explicit category choice.
+async function ensureTodayAura() {
+  const today = todayDateStr();
+  const existing = await pool.query('SELECT id FROM aura_tasks WHERE task_date = $1', [today]);
+  if (existing.rows.length > 0) return;
+
+  const prev = await pool.query('SELECT * FROM aura_tasks ORDER BY task_date DESC LIMIT 1');
+  const streak = await getStreak();
+  let newStreak = streak.current_streak;
+  if (prev.rows.length > 0) {
+    const p = prev.rows[0];
+    const gap = daysBetween(p.task_date, today);
+    if (!p.completed || gap > 1) newStreak = 0;
+  }
+  if (newStreak !== streak.current_streak) {
+    await pool.query('UPDATE aura_streak SET current_streak = $1, updated_at = NOW() WHERE id = 1', [newStreak]);
+  }
+
+  if (streak.categories_unlocked) return; // wait for category choice
+
+  const autoCount = await pool.query('SELECT COUNT(*) FROM aura_tasks WHERE category IS NULL');
+  const type = AUTO_TYPES[Number(autoCount.rows[0].count) % AUTO_TYPES.length];
+  const description = pickRandom(AUTO_TASKS[type]);
+  await pool.query(
+    'INSERT INTO aura_tasks (task_date, category, description) VALUES ($1, NULL, $2)',
+    [today, description]
+  );
+}
+
+app.get('/api/aura/today', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ task: null, streak: 0, categoriesUnlocked: false, needsCategory: false });
+  try {
+    await ensureTodayAura();
+    const today = todayDateStr();
+    const taskRes = await pool.query('SELECT * FROM aura_tasks WHERE task_date = $1', [today]);
+    const streak = await getStreak();
+    res.json({
+      task: taskRes.rows[0] || null,
+      streak: streak.current_streak,
+      categoriesUnlocked: streak.categories_unlocked,
+      needsCategory: streak.categories_unlocked && taskRes.rows.length === 0,
+    });
+  } catch (err) {
+    console.error('Aura today error:', err.message);
+    res.status(503).json({ error: err.message });
+  }
+});
+
+app.post('/api/aura/category', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'БД не настроена' });
+  const { category } = req.body;
+  if (!CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: 'Некорректная категория' });
+  }
+  try {
+    await ensureTodayAura();
+    const streak = await getStreak();
+    if (!streak.categories_unlocked) {
+      return res.status(403).json({ error: 'Категории ещё не открыты' });
+    }
+    const today = todayDateStr();
+    const existing = await pool.query('SELECT * FROM aura_tasks WHERE task_date = $1', [today]);
+    if (existing.rows.length > 0) return res.json({ task: existing.rows[0] });
+    const description = pickRandom(CATEGORY_TASKS[category]);
+    const result = await pool.query(
+      'INSERT INTO aura_tasks (task_date, category, description) VALUES ($1, $2, $3) RETURNING *',
+      [today, category, description]
+    );
+    res.json({ task: result.rows[0] });
+  } catch (err) {
+    console.error('Aura category error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/aura/complete', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.status(500).json({ error: 'БД не настроена' });
+  try {
+    await ensureTodayAura();
+    const today = todayDateStr();
+    const result = await pool.query(
+      'UPDATE aura_tasks SET completed = TRUE, completed_at = NOW() WHERE task_date = $1 AND completed = FALSE RETURNING *',
+      [today]
+    );
+    if (result.rows.length === 0) {
+      const existing = await pool.query('SELECT * FROM aura_tasks WHERE task_date = $1', [today]);
+      if (existing.rows.length === 0) return res.status(400).json({ error: 'Сначала выбери категорию на сегодня' });
+      const streak = await getStreak();
+      return res.json({ task: existing.rows[0], streak: streak.current_streak, categoriesUnlocked: streak.categories_unlocked });
+    }
+    const streak = await getStreak();
+    const newStreak = streak.current_streak + 1;
+    const unlocked = streak.categories_unlocked || newStreak >= 7;
+    await pool.query(
+      'UPDATE aura_streak SET current_streak = $1, categories_unlocked = $2, updated_at = NOW() WHERE id = 1',
+      [newStreak, unlocked]
+    );
+    res.json({ task: result.rows[0], streak: newStreak, categoriesUnlocked: unlocked });
+  } catch (err) {
+    console.error('Aura complete error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

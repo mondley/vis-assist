@@ -265,6 +265,22 @@ body.listening .orb-label { color: var(--c); opacity: 1; }
 }
 .gate-btn:active { background: rgba(var(--crgb),0.15); }
 .gate-error { font-size: 12px; color: #F87171; margin-top: 10px; min-height: 14px; }
+
+.aura-meta { font-size: 10px; opacity: 0.5; margin-bottom: 8px; font-family: 'Orbitron', monospace; letter-spacing: 0.1em; }
+.aura-desc { font-size: 13px; line-height: 1.6; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-left: 2px solid rgba(var(--crgb),0.4); margin-bottom: 10px; }
+.aura-complete-btn {
+  width: 100%; padding: 10px; border: 1px solid var(--c); background: transparent; color: var(--c);
+  font-family: 'Orbitron', monospace; font-size: 11px; letter-spacing: 0.1em; cursor: pointer;
+}
+.aura-complete-btn:active { background: rgba(var(--crgb),0.15); }
+.aura-complete-btn.done { opacity: 0.5; border-color: var(--border); color: var(--text); cursor: default; }
+.aura-cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.aura-cat-btn {
+  background: var(--bg); border: 1px solid var(--border); border-left: 2px solid rgba(var(--crgb),0.4);
+  padding: 12px; cursor: pointer; color: var(--text); font-family: 'Orbitron', monospace;
+  font-size: 10.5px; letter-spacing: 0.06em; text-align: center;
+}
+.aura-cat-btn:active { border-left-color: var(--c); }
 </style>
 </head>
 <body>
@@ -369,6 +385,12 @@ body.listening .orb-label { color: var(--c); opacity: 1; }
     <button class="quick-btn" onclick="ask('Найди минусы в моём мышлении и дай честную обратную связь')"><span>🧠</span>АНАЛИЗ</button>
   </div>
 
+  <div class="tasks-toggle" id="auraToggle" onclick="toggleAura()">
+    <span>🔮 АУРА ФАРМИНГ</span>
+    <span class="tasks-badge" id="auraStreakBadge">0🔥</span>
+  </div>
+  <div class="tasks-panel" id="auraPanel"></div>
+
   <div class="tasks-toggle" id="tasksToggle" onclick="toggleTasks()">
     <span>📋 ЗАДАЧИ ДЛЯ КОДА</span>
     <span class="tasks-badge" id="tasksBadge">0</span>
@@ -462,6 +484,75 @@ async function submitGate() {
 function initApp() {
   loadHistory();
   loadTasks();
+  loadAura();
+}
+
+let auraState = null;
+
+async function loadAura() {
+  try {
+    const res = await fetch('/api/aura/today', { headers: authHeaders() });
+    auraState = await res.json();
+    renderAura();
+  } catch (err) {
+    console.error('Load aura failed:', err);
+  }
+}
+
+function toggleAura() {
+  document.getElementById('auraPanel').classList.toggle('show');
+  loadAura();
+}
+
+function renderAura() {
+  const badge = document.getElementById('auraStreakBadge');
+  const panel = document.getElementById('auraPanel');
+  if (!auraState) { badge.textContent = '0🔥'; panel.innerHTML = ''; return; }
+  badge.textContent = `${auraState.streak}🔥`;
+
+  if (auraState.needsCategory) {
+    panel.innerHTML = `
+      <div class="aura-meta">7 ДНЕЙ ПОДРЯД — ВЫБЕРИ, ЧТО УКРЕПЛЯЕМ СЕГОДНЯ</div>
+      <div class="aura-cat-grid">${['ТЕЛО','ГОЛОС','МЫШЛЕНИЕ','ДИСЦИПЛИНА'].map(c => `<div class="aura-cat-btn" onclick="chooseAuraCategory('${c}')">${c}</div>`).join('')}</div>`;
+    return;
+  }
+
+  if (!auraState.task) {
+    panel.innerHTML = `<div class="task-empty">Задание появится позже</div>`;
+    return;
+  }
+
+  const t = auraState.task;
+  panel.innerHTML = `
+    <div class="aura-meta">${t.category ? escapeHtml(t.category) : 'ЗАДАНИЕ ДНЯ'}</div>
+    <div class="aura-desc">${escapeHtml(t.description)}</div>
+    <button class="aura-complete-btn ${t.completed ? 'done' : ''}" onclick="completeAura()" ${t.completed ? 'disabled' : ''}>${t.completed ? '✓ ВЫПОЛНЕНО' : 'ОТМЕТИТЬ ВЫПОЛНЕННЫМ'}</button>`;
+}
+
+async function completeAura() {
+  try {
+    const res = await fetch('/api/aura/complete', { method: 'POST', headers: authHeaders() });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    await loadAura();
+  } catch (err) {
+    console.error('Complete aura failed:', err);
+  }
+}
+
+async function chooseAuraCategory(category) {
+  try {
+    const res = await fetch('/api/aura/category', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ category }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    await loadAura();
+  } catch (err) {
+    console.error('Choose aura category failed:', err);
+  }
 }
 
 async function loadTasks() {
